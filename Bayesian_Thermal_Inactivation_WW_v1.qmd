@@ -68,6 +68,8 @@ raw_dat <- read_excel(here("data", "raw_data", "thermal_inactivation_raw_data.xl
 
 ## Data preprocessing and censoring
 
+Measurements reported below the assay limit of detection are left-censored on the concentration scale because the true concentration is lower than the reported bound. The modeled response, however, is log reduction, calculated as the initial log concentration minus the final log concentration. Subtracting a left-censored final concentration reverses the direction of the bound: the true log reduction is greater than the calculated value. These observations are therefore treated as right-censored throughout all log-reduction models, tables, and figures.
+
 ```{r}
 # 1. Flag censored data
 raw_dat_cens <- raw_dat %>% 
@@ -1503,7 +1505,7 @@ df_cal_inf <- clean_inf %>%
     mu_u95 = mu_inf$Q97.5,
     mu_l50 = mu_inf$Q25,
     mu_u50 = mu_inf$Q75,
-    cens_f = ifelse(cens_brms == 1, "right-censored", "observed")
+    cens_f = ifelse(cens_brms == 1, "Right-censored", "Observed")
   )
 
 p_cal_inf <- ggplot(df_cal_inf, aes(x = mu_med, y = log_red_obs)) + 
@@ -1513,11 +1515,12 @@ p_cal_inf <- ggplot(df_cal_inf, aes(x = mu_med, y = log_red_obs)) +
   geom_point( aes(shape = cens_f, color = cens_f), alpha = 0.8, size = 1.6) + 
   #facet_wrap(~ matrix_group2, scales = "free") + 
   coord_cartesian(xlim = c(0, 10), ylim = c(0, 10)) + 
-  scale_color_manual( values = c("observed" = "black", "right-censored" = "red"), name = "Observation type") + 
-  scale_shape_manual( values = c("observed" = 16, "right-censored" = 17), name = "Observation type" ) + 
+  scale_color_manual( values = c("Observed" = "black", "Right-censored" = "red"), name = "Observation type") +
+  scale_shape_manual( values = c("Observed" = 16, "Right-censored" = 17), name = "Observation type" ) +
   labs( x = expression("Posterior predicted median log"[10]*" reduction"), y = expression("Observed log"[10]*" reduction")) +
   theme_bw(base_size = 13) + 
-  theme( panel.grid.major = element_blank(), 
+  theme( plot.title = element_blank(),
+         panel.grid.major = element_blank(),
          panel.grid.minor = element_blank(), 
          strip.background = element_rect(fill = "grey90", color = "black", linewidth = 0.4), 
          strip.text = element_text(size = 12, face = "bold"), 
@@ -1529,7 +1532,7 @@ p_cal_inf <- ggplot(df_cal_inf, aes(x = mu_med, y = log_red_obs)) +
 
 p_cal_inf
 
-ggsave( here("result", "infectivity_observed_vs_predicted_calibration.png"), plot = p_cal_inf, width = 4, height = 4, dpi = 600 )
+ggsave( here("result", "infectivity_observed_vs_predicted_calibration.png"), plot = p_cal_inf, width = 5.5, height = 5.5, dpi = 600, bg = "white" )
 ```
 
 ### D- and z-value estimates
@@ -1682,7 +1685,7 @@ obs_inf <- clean_inf %>%
   mutate(
     temperature_plot = round(temperature),
     temperature_f = factor(temperature_plot, levels = temps, labels = paste0(temps, "°C")),
-    obs_type = ifelse(cens_brms == 1, "Left censored", "Observed"),
+    obs_type = ifelse(cens_brms == 1, "Right-censored", "Observed"),
     matrix_group2 = recode(matrix_group2, !!!matrix_labs)
   ) %>%
   filter(
@@ -1719,7 +1722,7 @@ p_inf <- ggplot(pred_inf, aes(time_min, mean)) +
   ) +
   coord_cartesian(ylim = c(0, 5)) +
   scale_shape_manual(
-    values = c("Observed" = 24, "Left censored" = 21)
+    values = c("Observed" = 24, "Right-censored" = 21)
   ) +
   labs(
     x = "Time (min)",
@@ -1728,6 +1731,7 @@ p_inf <- ggplot(pred_inf, aes(time_min, mean)) +
   ) +
   theme_bw(base_size = 9) +
   theme(
+    plot.title = element_blank(),
     panel.grid = element_blank(),
     strip.background = element_rect(fill = "grey92", color = "black", linewidth = 0.25),
     strip.text = element_text(face = "bold", size = 9),
@@ -1747,8 +1751,8 @@ p_inf
 ggsave(
   here("result", "Predicted_log10_reductions_infectivity_bw.png"),
   p_inf,
-  width = 5.6,
-  height = 5.8,
+  width = 7.2,
+  height = 7.2,
   dpi = 600,
   bg = "white"
 )
@@ -3139,7 +3143,7 @@ cal_pcr <- clean_pcr %>%
     mu_med = mu[, "Q50"],
     mu_l95 = mu[, "Q2.5"],
     mu_u95 = mu[, "Q97.5"],
-    cens_f = ifelse(cens_brms == 1, "right-censored", "observed"),
+    cens_f = ifelse(cens_brms == 1, "Right-censored", "Observed"),
     temperature_f = factor(round(temperature))
   )
 
@@ -3149,8 +3153,8 @@ base_cal <- function(dat) {
     geom_errorbarh(aes(xmin = mu_l95, xmax = mu_u95), height = 0, alpha = 0.25, linewidth = 0.4) +
     geom_point(aes(shape = cens_f, color = cens_f), alpha = 0.85, size = 2) +
     coord_cartesian(xlim = c(0, 10), ylim = c(0, 10)) +
-    scale_color_manual(values = c("observed" = "black", "right-censored" = "red")) +
-    scale_shape_manual(values = c("observed" = 16, "right-censored" = 17)) +
+    scale_color_manual(values = c("Observed" = "black", "Right-censored" = "red")) +
+    scale_shape_manual(values = c("Observed" = 16, "Right-censored" = 17)) +
     labs(
       x = expression("Posterior predicted median log"[10] * " reduction"),
       y = expression("Observed log"[10] * " reduction"),
@@ -3159,6 +3163,7 @@ base_cal <- function(dat) {
     ) +
     theme_bw(base_size = 12) +
     theme(
+      plot.title = element_blank(),
       panel.grid = element_blank(),
       axis.title = element_text(size = 12),
       axis.text = element_text(size = 12),
@@ -3175,7 +3180,7 @@ save_cal <- function(p, file, width, height) {
 }
 
 p_cal_overall <- base_cal(cal_pcr)
-save_cal(p_cal_overall, "pcr_calibration_overall.png", 4, 4)
+save_cal(p_cal_overall, "pcr_calibration_overall.png", 5.5, 5.5)
 
 make_cal <- function(facet_var, file, width = 10, height = 5) {
   p <- base_cal(cal_pcr) +
@@ -3512,7 +3517,6 @@ make_temp_plot <- function(temp_i, ncol_i = 4) {
     facet_wrap(~ panel, ncol = ncol_i) +
     coord_cartesian(ylim = c(0, 5)) +
     labs(
-      title = paste0(temp_i, "°C"),
       x = "Time (min)",
       y = expression(log[10] * " reduction"),
       color = "Pretreatment",
@@ -3524,7 +3528,7 @@ make_temp_plot <- function(temp_i, ncol_i = 4) {
       strip.background = element_rect(fill = "grey90", color = "black", linewidth = 0.4),
       strip.text = element_text(size = 8.5, face = "bold"),
       legend.position = "bottom",
-      plot.title = element_text(size = 16, face = "bold")
+      plot.title = element_blank()
     )
 }
 

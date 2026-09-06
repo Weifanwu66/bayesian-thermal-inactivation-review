@@ -1,0 +1,172 @@
+==================================================================
+BIPHASIC EXPLORATORY ANALYSIS - SUMMARY REPORT
+Generated: 2026-08-18 15:16:05
+==================================================================
+
+Classification heuristic:
+  Approximately log-linear : slope CV < 40% AND slope range < 0.20 log10/min
+  Smooth shoulder/tailing  : slopes monotonically changing (Weibull n!=1)
+  Potentially biphasic     : early/late slope ratio >= 3x, both phases show
+                             meaningful inactivation, >= 2 late-phase segments,
+                             >= 4 observed non-zero time points
+  Insufficient information : < 2 non-censored non-zero time points available
+
+-- INFECTIVITY DATA -------------------------------------------------
+  Infectivity                              : 113 curves
+
+    approximately log-linear            : 51 (45.1%)
+    insufficient information            : 29 (25.7%)
+    potentially biphasic                : 9 (8.0%)
+    smooth shoulder/tailing             : 24 (21.2%)
+
+  Potentially biphasic details (9 curves):
+    curve_145 | MS2 | water | 70C | n_obs=10 | n_nonzero=9
+      Reason: Early mean slope 0.731 log10/min, late 0.048 log10/min (15.2x ratio); 3 late-phase segments
+    curve_16 | HAV | bilberry | 70C | n_obs=7 | n_nonzero=6
+      Reason: Early mean slope 1.197 log10/min, late 0.135 log10/min (8.9x ratio); 2 late-phase segments
+    curve_186 | HAV | cream | 69C | n_obs=12 | n_nonzero=11
+      Reason: Early mean slope 0.471 log10/min, late 0.129 log10/min (3.7x ratio); 4 late-phase segments
+    curve_187 | HAV | cream | 71C | n_obs=12 | n_nonzero=11
+      Reason: Early mean slope 0.450 log10/min, late 0.134 log10/min (3.4x ratio); 4 late-phase segments
+    curve_192 | HAV | milk | 67C | n_obs=12 | n_nonzero=11
+      Reason: Early mean slope 0.477 log10/min, late 0.101 log10/min (4.7x ratio); 4 late-phase segments
+    curve_193 | HAV | milk | 69C | n_obs=12 | n_nonzero=11
+      Reason: Early mean slope 0.560 log10/min, late 0.074 log10/min (7.6x ratio); 4 late-phase segments
+    curve_199 | HAV | skim milk | 67C | n_obs=12 | n_nonzero=11
+      Reason: Early mean slope 0.538 log10/min, late 0.102 log10/min (5.2x ratio); 4 late-phase segments
+    curve_200 | HAV | skim milk | 69C | n_obs=12 | n_nonzero=11
+      Reason: Early mean slope 0.556 log10/min, late 0.143 log10/min (3.9x ratio); 4 late-phase segments
+    curve_22 | HAV | strawberry | 70C | n_obs=7 | n_nonzero=6
+      Reason: Early mean slope 0.793 log10/min, late 0.190 log10/min (4.2x ratio); 2 late-phase segments
+
+  By study:
+    10.1016/j.fm.2010.05.018 : 2
+    10.1093/jambio/lxae033 : 1
+    10.4315/0362-028X-63.4.522 : 6
+
+  By virus:
+    HAV : 8
+    MS2 : 1
+
+  By matrix group:
+    other_food : 8
+    simple_matrix : 1
+
+  By temperature:
+    67C : 2
+    69C : 3
+    70C : 3
+    71C : 1
+
+  Candidates with >=5 non-zero time points: 9
+
+-- PCR DATA ----------------------------------------------------------
+  PCR                                      : 56 curves
+
+    approximately log-linear            : 36 (64.3%)
+    insufficient information            : 5 (8.9%)
+    potentially biphasic                : 1 (1.8%)
+    smooth shoulder/tailing             : 14 (25.0%)
+
+  Potentially biphasic details (1 curves):
+    curve_103 | MNV-1 | seaweed | 75C | n_obs=7 | n_nonzero=6
+      Reason: Early mean slope 0.623 log10/min, late 0.120 log10/min (5.2x ratio); 2 late-phase segments
+
+  By study:
+    10.1016/j.foodres.2026.118748 : 1
+
+  By virus:
+    MNV-1 : 1
+
+  By matrix group:
+    other_food : 1
+
+  By temperature:
+    75C : 1
+
+  Candidates with >=5 non-zero time points: 1
+
+-- ALL COMBINED ------------------------------------------------------
+  All combined                             : 169 curves
+
+    approximately log-linear            : 87 (51.5%)
+    insufficient information            : 34 (20.1%)
+    potentially biphasic                : 10 (5.9%)
+    smooth shoulder/tailing             : 38 (22.5%)
+
+  Potentially biphasic details (10 curves):
+    curve_145 | MS2 | water | 70C | n_obs=10 | n_nonzero=9
+      Reason: Early mean slope 0.731 log10/min, late 0.048 log10/min (15.2x ratio); 3 late-phase segments
+    curve_16 | HAV | bilberry | 70C | n_obs=7 | n_nonzero=6
+      Reason: Early mean slope 1.197 log10/min, late 0.135 log10/min (8.9x ratio); 2 late-phase segments
+    curve_186 | HAV | cream | 69C | n_obs=12 | n_nonzero=11
+      Reason: Early mean slope 0.471 log10/min, late 0.129 log10/min (3.7x ratio); 4 late-phase segments
+    curve_187 | HAV | cream | 71C | n_obs=12 | n_nonzero=11
+      Reason: Early mean slope 0.450 log10/min, late 0.134 log10/min (3.4x ratio); 4 late-phase segments
+    curve_192 | HAV | milk | 67C | n_obs=12 | n_nonzero=11
+      Reason: Early mean slope 0.477 log10/min, late 0.101 log10/min (4.7x ratio); 4 late-phase segments
+    curve_193 | HAV | milk | 69C | n_obs=12 | n_nonzero=11
+      Reason: Early mean slope 0.560 log10/min, late 0.074 log10/min (7.6x ratio); 4 late-phase segments
+    curve_199 | HAV | skim milk | 67C | n_obs=12 | n_nonzero=11
+      Reason: Early mean slope 0.538 log10/min, late 0.102 log10/min (5.2x ratio); 4 late-phase segments
+    curve_200 | HAV | skim milk | 69C | n_obs=12 | n_nonzero=11
+      Reason: Early mean slope 0.556 log10/min, late 0.143 log10/min (3.9x ratio); 4 late-phase segments
+    curve_22 | HAV | strawberry | 70C | n_obs=7 | n_nonzero=6
+      Reason: Early mean slope 0.793 log10/min, late 0.190 log10/min (4.2x ratio); 2 late-phase segments
+    curve_103 | MNV-1 | seaweed | 75C | n_obs=7 | n_nonzero=6
+      Reason: Early mean slope 0.623 log10/min, late 0.120 log10/min (5.2x ratio); 2 late-phase segments
+
+  By study:
+    10.1016/j.fm.2010.05.018 : 2
+    10.1016/j.foodres.2026.118748 : 1
+    10.1093/jambio/lxae033 : 1
+    10.4315/0362-028X-63.4.522 : 6
+
+  By virus:
+    HAV : 8
+    MNV-1 : 1
+    MS2 : 1
+
+  By matrix group:
+    other_food : 9
+    simple_matrix : 1
+
+  By temperature:
+    67C : 2
+    69C : 3
+    70C : 3
+    71C : 1
+    75C : 1
+
+  Candidates with >=5 non-zero time points: 10
+
+==================================================================
+INTERPRETATION AND RECOMMENDATION
+==================================================================
+
+Across all 169 model-eligible curves (113 infectivity, 56 PCR),
+10 (5.9%) were classified as potentially biphasic using the
+heuristic criteria (early/late slope ratio >= 3x, >= 2 late-phase
+slope segments, genuine inactivation in both phases).
+
+Classification distinguishes between:
+  * Approximately log-linear: relatively constant reduction rate
+  * Smooth shoulder/tailing : monotonically changing slope (Weibull n!=1)
+  * Potentially biphasic    : distinct early rapid + late slow kinetic phases
+  * Insufficient information: too few observed non-censored time points
+
+IMPORTANT: A curve is NOT classified as biphasic merely because its
+last point tails or because one point deviates from the trajectory.
+
+Recommendation:
+  10 curve(s) (5.9%) meet the biphasic heuristic across
+  4 independent studies. Visual inspection of the candidate
+  plots is strongly recommended to confirm whether the transitions
+  reflect genuine two-phase kinetics rather than measurement noise.
+  Biphasic models should only be added to the formal workflow if
+  visual inspection confirms clearly biphasic trajectories in
+  multiple independent datasets.
+
+==================================================================
+END OF REPORT
+==================================================================

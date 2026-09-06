@@ -4,7 +4,7 @@ This repository contains the data, fitted Bayesian models, analysis outputs, and
 
 ## Repository structure
 
-- `Bayesian_Thermal_Inactivation_WW_v1.qmd`: Main data-processing, modeling, model-comparison, diagnostic, and visualization workflow.
+- `Bayesian_Thermal_Inactivation_WW_v2.qmd`: Main data-processing, modeling, model-comparison, diagnostic, and visualization workflow.
 - `data/raw_data/`: Source data used by the analysis.
 - `data/cleaned_data/`: Prepared R data objects used for model fitting and visualization.
 - `models/infectivity/`: Saved Bayesian models for infectivity outcomes.
@@ -66,7 +66,7 @@ The first three cleaned objects share these analysis columns:
 
 1. Clone the repository and open the project directory in RStudio or another Quarto-compatible environment.
 2. Install the required R packages and CmdStan.
-3. Render `Bayesian_Thermal_Inactivation_WW_v1.qmd` from the repository root.
+3. Render `Bayesian_Thermal_Inactivation_WW_v2.qmd` from the repository root.
 
 ## License
 

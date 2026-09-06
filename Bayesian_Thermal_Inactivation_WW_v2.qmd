@@ -12,7 +12,7 @@ Primary inactivation kinetics are evaluated using both first-order and Weibull m
 
 To explain systematic variation in $D$, secondary models are specified through nonlinear predictors on the natural-log time scale used in the `brms` formulas. Temperature is represented either by a linear deviation term or by a powered deviation term with an estimated exponent. Food matrix, virus type, and PCR pretreatment are evaluated either as shifts in the reference-temperature log time parameter or as modifiers of the temperature coefficient, depending on the candidate model. Between-study heterogeneity is represented by random intercepts on the reference-temperature parameter.
 
-All models are fit in a **Bayesian hierarchical framework**, allowing full propagation of uncertainty across model components. Observations whose true log reduction exceeds the recorded bound are treated as right-censored on the log-reduction scale through the censored-data likelihood in **brms**. Model adequacy is assessed through posterior predictive checks and MCMC diagnostics. Models exhibiting poor convergence (e.g., $\widehat{R}$ meaningfully greater than 1.00 or evidence of incomplete chain mixing) were refitted with tighter priors or stronger sampler tuning.
+All models are fit in a **Bayesian hierarchical framework**, allowing joint propagation of posterior uncertainty among the modeled components. Observations whose true log reduction exceeds the recorded bound are treated as right-censored on the log-reduction scale through the censored-data likelihood in **brms**. Model adequacy is assessed through posterior predictive checks and MCMC diagnostics. Models exhibiting poor convergence (e.g., $\widehat{R}$ meaningfully greater than 1.00 or evidence of incomplete chain mixing) were refitted with tighter priors or stronger sampler tuning.
 
 Validated models are compared using **leave-one-out cross-validation (LOO)** to assess predictive performance and identify a parsimonious formulation within each kinetic model family.
 
@@ -51,7 +51,7 @@ raw_dat <- read_excel(here("data", "raw_data", "thermal_inactivation_raw_data.xl
 ## Data structure
 
 |  |  |  |
-|----|----|----|
+|------------------------|------------------------|------------------------|
 | Variable | Description | Values / Units |
 | study_id | Identifier for the study / article the data came from | DOI link |
 | virus_type | Virus species used in the thermal inactivation experiment | MNV-1 (Murine norovirus), Tulane virus (TV), Hepatitis A (HAV), and Feline calicivirus strain F-9 (FCV-f9), MS2, and GA |
@@ -414,7 +414,130 @@ plot_dat_pcr %>%
   theme_bw()
 ```
 
-Exploratory analysis of the PCR data indicated that temperature is also a primary driver of genome signal reduction. Across studies and temperature strata, log10 reductions generally increased approximately linearly with time, supporting the use of first-order primary kinetics for PCR-based outcomes. Differences among virus types were small relative to temperature effects and did not show consistent patterns across matrices. In contrast to infectivity, matrix-associated differences were weaker and more variable, consistent with PCR measurements reflecting persistence of detectable viral genomes rather than loss of functional infectivity.
+Exploratory analysis of the PCR data indicated that temperature is also a primary driver of genome signal reduction. Across studies and temperature strata, log10 reductions generally increased approximately linearly with time, supporting the use of first-order primary kinetics for PCR-based outcomes. Differences among virus types were small relative to temperature effects and did not show consistent patterns across matrices. In contrast to infectivity, matrix-associated differences were weaker and more variable, consistent with PCR measurements reflecting persistence of detectable viral genomes rather than loss of infectivity.
+
+### Assessment of biphasic inactivation behavior
+
+To evaluate whether restriction of the candidate primary kinetic models to the log-linear and Weibull formulations was justified, we inspected individual inactivation curves for evidence of genuinely biphasic behavior — defined as a visually distinct transition between two kinetic phases, rather than smooth monotonic Weibull-type tailing or shoulder.
+
+Each unique time-response series was treated as a separate curve, identified by the combination of study, virus type, food matrix, temperature, detection method, and PCR pretreatment where applicable. Only model-eligible observations (infectivity: ≥60°C; PCR: ≥60°C with study exclusions applied) were used. Individual trajectories were plotted with lines connecting observed time points and inspected visually for evidence of an abrupt inflection between two distinct kinetic phases.
+
+```{r}
+# Data: model-eligible infectivity and PCR observations
+inf_bph <- readRDS(here("data", "cleaned_data", "clean_inf.rds")) %>%
+  filter(temperature >= 60) %>%
+  filter(!(time_min == 0 & cens == 1))
+
+pcr_bph <- readRDS(here("data", "cleaned_data", "clean_pcr.rds")) %>%
+  filter(
+    temperature >= 60,
+    study_id != "https://doi.org/10.1007/s12560-020-09443-z"
+  ) %>%
+  filter(!(study_id %in% "10.1016/j.fm.2014.01.009" & temperature == 72)) %>%
+  filter(!(time_min == 0 & cens == 1))
+
+# Construct a unique grouping key for each individual time-series (for geom_line)
+add_curve_key <- function(df) {
+  df %>%
+    mutate(
+      curve_key = paste(study_id, virus_type, food_matrix,
+                        temperature, detection_method, pretreatment,
+                        sep = "_"),
+      cens_f = factor(
+        as.integer(as.character(cens)),
+        levels = c(0, 1), labels = c("Observed", "Right-censored")
+      )
+    )
+}
+
+inf_bph <- add_curve_key(inf_bph)
+pcr_bph <- add_curve_key(pcr_bph)
+
+# Helper function to compute subgroup evidence counts
+calc_subgroup_counts <- function(df, grp_var) {
+  df %>%
+    group_by(across(all_of(grp_var))) %>%
+    summarise(
+      `Studies (n)` = n_distinct(study_id),
+      `Curves (n)` = n_distinct(curve_key),
+      `Observations (n)` = n(),
+      .groups = "drop"
+    )
+}
+
+# Subgroup evidence counts for Infectivity dataset
+inf_subgroups_assay  <- calc_subgroup_counts(inf_bph, "detection_method")
+inf_subgroups_virus  <- calc_subgroup_counts(inf_bph, "virus_type")
+inf_subgroups_matrix <- calc_subgroup_counts(inf_bph, "matrix_group")
+inf_subgroups_mat2   <- calc_subgroup_counts(inf_bph, "matrix_group2")
+
+# Subgroup evidence counts for RT-qPCR dataset
+pcr_bph_sub <- pcr_bph %>%
+  mutate(
+    pretreat_group = case_when(
+      pretreatment %in% c("PMA", "RNase") ~ "viability",
+      pretreatment == "PGM" ~ "PGM",
+      TRUE ~ "none"
+    ),
+    virus_cluster = case_when(
+      virus_type %in% c("HAV", "HuNoV GII") ~ "enteric_virus",
+      virus_type %in% c("FCV-F9", "MNV-1") ~ "similar_surrogates",
+      virus_type %in% c("MS2", "GA") ~ "bacteriophage",
+      virus_type == "TV" ~ "TV",
+      TRUE ~ virus_type
+    )
+  )
+
+pcr_subgroups_pretreat <- calc_subgroup_counts(pcr_bph_sub, "pretreat_group")
+pcr_subgroups_virus <- calc_subgroup_counts(pcr_bph_sub, "virus_cluster")
+pcr_subgroups_matrix <- calc_subgroup_counts(pcr_bph_sub, "matrix_group")
+
+# Trajectory plot: infectivity
+inf_bph %>%
+  ggplot(aes(x = time_min, y = log_red_obs,
+             group = curve_key, colour = factor(temperature))) +
+  geom_line(
+    data = function(d) d[d$cens_f == "Observed", ],
+    linewidth = 0.45, alpha = 0.7
+  ) +
+  geom_point(aes(shape = cens_f), size = 1.5, alpha = 0.85) +
+  scale_shape_manual(
+    values = c("Observed" = 16, "Right-censored" = 6), name = NULL
+  ) +
+  facet_wrap(~ temperature, labeller = label_both) +
+  labs(
+    title    = "Individual infectivity inactivation curves",
+    subtitle = "Each line = one time-series; right-censored observations shown as open triangles",
+    x = "Time (min)", y = expression(Observed~log[10]~reduction),
+    colour = "Temperature (°C)"
+  ) +
+  theme_bw(base_size = 10) +
+  theme(legend.position = "none", strip.text = element_text(size = 8))
+
+# Trajectory plot: RT-qPCR
+pcr_bph %>%
+  ggplot(aes(x = time_min, y = log_red_obs,
+             group = curve_key, colour = factor(temperature))) +
+  geom_line(
+    data = function(d) d[d$cens_f == "Observed", ],
+    linewidth = 0.45, alpha = 0.7
+  ) +
+  geom_point(aes(shape = cens_f), size = 1.5, alpha = 0.85) +
+  scale_shape_manual(
+    values = c("Observed" = 16, "Right-censored" = 6), name = NULL
+  ) +
+  facet_wrap(~ temperature, labeller = label_both) +
+  labs(
+    title    = "Individual RT-qPCR inactivation curves",
+    subtitle = "Each line = one time-series; right-censored observations shown as open triangles",
+    x = "Time (min)", y = expression(Observed~log[10]~reduction),
+    colour = "Temperature (°C)"
+  ) +
+  theme_bw(base_size = 10) +
+  theme(legend.position = "none", strip.text = element_text(size = 8))
+```
+
+Visual inspection of individual time-response curves across both the infectivity and RT-qPCR datasets revealed no evidence of genuinely biphasic inactivation behavior. No curve displayed a bilinear trajectory, that is, two clearly distinct linear segments with a visible inflection point, that would be indicative of two virus subpopulations with different levels of thermal resistance. Curves exhibiting deceleration of the inactivation rate over time showed a continuously changing, concave-upward shape consistent with Weibull-type tailing (shape parameter $n < 1$) rather than an abrupt transition between two kinetic regimes. Curves with the most pronounced deceleration were concentrated within a single study (HAV in dairy matrices at 67–71°C) and were not reproduced across independent datasets. These observations support restriction of the candidate primary kinetic models to the log-linear and Weibull formulations.
 
 # Statistical modeling
 
@@ -526,9 +649,6 @@ saveRDS(fit_primary_heavy_linear_inf, file = here("models", "infectivity", "fit_
 ```{r}
 fit_primary_normal_linear_inf <- readRDS(file = here("models", "infectivity", "fit_primary_normal_linear.rds"))
 fit_primary_heavy_linear_inf <- readRDS(file = here("models", "infectivity", "fit_primary_heavy_linear.rds"))
-```
-
-```{r}
 loo_compare(loo(fit_primary_normal_linear_inf),
             loo(fit_primary_heavy_linear_inf))
 ```
@@ -659,6 +779,67 @@ loo_compare(loo(fit_primary_weibull_inf_normal),
 
 Summary: LOO strongly favored the Weibull inactivation model over the corresponding log-linear model (Student-$t$ Weibull versus Student-$t$ log-linear: ΔELPD = 317.3, SE = 30.9), indicating substantially improved predictive performance. The Gaussian and Student-$t$ Weibull fits had similar predictive accuracy (ΔELPD = 1.1, SE = 2.4). In the Student-$t$ Weibull model, the estimated degrees of freedom was relatively large (posterior mean $\nu = 18.4$), consistent with approximately Gaussian residual behavior. Therefore, subsequent infectivity Weibull models use a Gaussian likelihood for parsimony.
 
+```{r}
+#| eval: false
+# Global execution settings for Study-Grouped K-Fold Cross-Validation
+KF_CHAINS <- 4
+KF_ITER <- 2000
+KF_WARMUP <- 1000
+KF_CORES <- 4
+
+# Ensure caching directory exists
+dir.create(here::here("models", "kfold"), showWarnings = FALSE, recursive = TRUE)
+
+# Dynamic helper function to compute or load Study-Grouped K-Fold Cross-Validation
+# Automatically extracts model dataset and constructs study-level folds matching fit$data
+get_study_kfold <- function(fit, model_name, seed = 42) {
+  cache_file <- here::here("models", "kfold", paste0(model_name, "_kfold.rds"))
+  
+  if (file.exists(cache_file)) {
+    return(readRDS(cache_file))
+  }
+  
+  model_dat <- fit$data
+  
+  if ("study_id" %in% names(model_dat)) {
+    set.seed(seed)
+    unique_studies <- unique(model_dat$study_id)
+    model_folds <- match(model_dat$study_id, unique_studies)
+  } else {
+    model_folds <- NULL
+  }
+  
+  kf <- kfold(
+    fit,
+    folds = model_folds,
+    chains = KF_CHAINS,
+    iter = KF_ITER,
+    warmup = KF_WARMUP,
+    cores = KF_CORES,
+    refresh = 0
+  )
+  
+  saveRDS(kf, cache_file)
+  return(kf)
+}
+```
+
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Weibull vs Log-linear primary infectivity model
+kf_pri_weib_norm <- get_study_kfold(fit_primary_weibull_inf_normal, "fit_primary_weibull_inf_normal")
+kf_pri_weib_heavy <- get_study_kfold(fit_primary_weibull_inf_heavy, "fit_primary_weibull_inf_heavy")
+kf_pri_lin_heavy <- get_study_kfold(fit_primary_heavy_linear_inf, "fit_primary_heavy_linear_inf")
+kf_pri_lin_norm <- get_study_kfold(fit_primary_normal_linear_inf, "fit_primary_normal_linear_inf")
+comp_pri_inf <- loo_compare(kf_pri_weib_norm, kf_pri_weib_heavy, kf_pri_lin_heavy, kf_pri_lin_norm)
+saveRDS(comp_pri_inf, file = here::here("models", "kfold", "comp_primary_inf.rds"))
+```
+
+```{r}
+comp_pri_inf <- readRDS(here::here("models", "kfold", "comp_primary_inf.rds"))
+print(comp_pri_inf)
+```
+
 ### Secondary covariate models
 
 #### Linear-temperature Weibull model {#secondary-model-temp-only-infectivity}
@@ -787,8 +968,6 @@ fit_weib_big_temp_inf_shape <- readRDS(file = here("models", "infectivity", "fit
 summary(fit_weib_big_temp_inf_shape)
 ```
 
-Summary: LOO indicated no meaningful improvement in predictive performance when allowing the Weibull shape parameter to vary with temperature. The global-shape model was favored by only 0.5 ELPD (SE = 5.0), so the additional temperature-dependent shape term was not supported. Both fits had two observations with Pareto $k>0.7$; this comparison should therefore be interpreted cautiously and verified with moment matching before final reporting. The more parsimonious specification, in which temperature affects the scale parameter ($D$) and the Weibull shape parameter ($n$) is global, was retained.
-
 #### Powered-temperature Weibull model {#sec-powered-bigelow-inf}
 
 ##### Mathematical formulation and assumptions
@@ -898,6 +1077,27 @@ loo_compare(loo(fit_weib_big_temp_inf),
 Comparison of the temperature-only secondary models using LOO showed no meaningful predictive advantage for the powered formulation over the standard linear-temperature formulation (ΔELPD = 2.1, SE = 2.6). Because the simpler standard formulation was sufficient and easier to interpret, subsequent infectivity model development proceeded with the linear-temperature, global-shape Weibull framework. Pareto-$k$ diagnostic flags in these fits should be addressed with moment matching before the final LOO values are reported in the manuscript.
 
 ```{r}
+#| eval: false
+# Study-grouped K-fold validation: Secondary temperature & shape models
+kf_weib_big_temp_inf <- get_study_kfold(fit_weib_big_temp_inf, "fit_weib_big_temp_inf")
+kf_weib_big_temp_inf_shape <- get_study_kfold(fit_weib_big_temp_inf_shape, "fit_weib_big_temp_inf_shape")
+kf_weib_pow_temp_shape_inf <- get_study_kfold(fit_weib_pow_temp_shape_inf, "fit_weib_pow_temp_shape_inf")
+kf_weib_pow_temp_inf <- get_study_kfold(fit_weib_pow_temp_inf, "fit_weib_pow_temp_inf")
+comp_sec_temp_inf <- loo_compare(x = list(
+  "Weibull_linear_temp"        = kf_weib_big_temp_inf,
+  "Weibull_linear_temp_shape"  = kf_weib_big_temp_inf_shape,
+  "Weibull_powered_temp_shape" = kf_weib_pow_temp_shape_inf,
+  "Weibull_powered_temp"       = kf_weib_pow_temp_inf
+))
+saveRDS(comp_sec_temp_inf, file = here("models", "kfold", "comp_sec_temp_inf.rds"))
+```
+
+```{r}
+comp_sec_inf <- readRDS(here("models", "kfold", "comp_sec_temp_inf.rds"))
+print(comp_sec_inf)
+```
+
+```{r}
 summary(fit_weib_big_temp_inf)
 ```
 
@@ -983,6 +1183,19 @@ summary(fit_weib_big_food_inf)
 ```{r}
 loo_compare(loo(fit_weib_big_food_inf),
             loo(fit_weib_big_temp_inf))
+```
+
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Baseline marginal food matrix
+kf_food_main_inf <- get_study_kfold(fit_weib_big_food_inf, "fit_weib_big_food_main_inf")
+kf_temp_only_inf <- get_study_kfold(fit_weib_big_temp_inf, "fit_weib_big_temp_inf")
+comp_food_inf <- loo_compare(kf_food_main_inf, kf_temp_only_inf)
+saveRDS(comp_food_inf, file = here("models", "kfold", "comp_food_inf.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_food_inf.rds"))
 ```
 
 ##### Marginal effects of food matrix
@@ -1087,6 +1300,19 @@ loo_compare(loo(fit_weib_big_food_inf),
             loo(fit_weib_big_pooled_food_inf))
 ```
 
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Baseline marginal pooled matrix
+kf_pooled_food_inf <- get_study_kfold(fit_weib_big_pooled_food_inf, "fit_weib_big_pooled_food_main_inf")
+kf_food_main_inf <- get_study_kfold(fit_weib_big_food_inf, "fit_weib_big_food_main_inf")
+comp_pooled_food_inf <- loo_compare(kf_food_main_inf, kf_pooled_food_inf)
+saveRDS(comp_pooled_food_inf, file = here("models", "kfold", "comp_pooled_food_inf.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_pooled_food_inf.rds"))
+```
+
 #### Linear-temperature Weibull model with virus effects
 
 ##### Mathematical formulation and assumptions
@@ -1145,6 +1371,19 @@ summary(fit_weib_big_virus_inf)
 ```{r}
 loo_compare(loo(fit_weib_big_virus_inf),
             loo(fit_weib_big_temp_inf))
+```
+
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Baseline marginal virus group
+kf_virus_main_inf <- get_study_kfold(fit_weib_big_virus_inf, "fit_weib_big_virus_inf")
+kf_temp_only_inf <- get_study_kfold(fit_weib_big_temp_inf, "fit_weib_big_temp_inf")
+comp_virus_inf <- loo_compare(kf_virus_main_inf, kf_temp_only_inf)
+saveRDS(comp_virus_inf, file = here("models", "kfold", "comp_virus_inf.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_virus_inf.rds"))
 ```
 
 #### Linear-temperature Weibull model with pooled food-matrix and virus effects
@@ -1207,6 +1446,19 @@ summary(fit_weib_big_pooled_food_virus_inf)
 ```{r}
 loo_compare(loo(fit_weib_big_pooled_food_virus_inf),
             loo(fit_weib_big_pooled_food_inf))
+```
+
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Baseline conditional matrix + virus (Infectivity Table 4)
+kf_food_virus_inf  <- get_study_kfold(fit_weib_big_pooled_food_virus_inf, "fit_weib_big_pooled_food_virus_inf")
+kf_pooled_food_inf <- get_study_kfold(fit_weib_big_pooled_food_inf, "fit_weib_big_pooled_food_inf")
+comp_food_virus_inf <- loo_compare(kf_food_virus_inf, kf_pooled_food_inf)
+saveRDS(comp_food_virus_inf, file = here("models", "kfold", "comp_food_virus_inf.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_food_virus_inf.rds"))
 ```
 
 #### Food-specific temperature effects
@@ -1285,6 +1537,19 @@ summary(fit_weib_big_food_temp_int_inf)
 ```{r}
 loo_compare(loo(fit_weib_big_food_temp_int_inf),
             loo(fit_weib_big_pooled_food_inf))
+```
+
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Temperature marginal matrix interaction
+kf_food_temp_inf <- get_study_kfold(fit_weib_big_food_temp_int_inf, "fit_weib_big_food_temp_int_inf")
+kf_pooled_food_inf <- get_study_kfold(fit_weib_big_pooled_food_inf, "fit_weib_big_pooled_food_main_inf")
+comp_food_temp_inf <- loo_compare(kf_food_temp_inf, kf_pooled_food_inf)
+saveRDS(comp_food_temp_inf, file = here("models", "kfold", "comp_food_temp_inf.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_food_temp_inf.rds"))
 ```
 
 ##### Marginal effects of food matrix
@@ -1392,6 +1657,19 @@ loo_compare(loo(fit_weib_big_virus_temp_int_inf),
             loo(fit_weib_big_pooled_food_inf))
 ```
 
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Virus-specific temperature interaction
+kf_virus_temp_inf <- get_study_kfold(fit_weib_big_virus_temp_int_inf, "fit_weib_big_virus_temp_int_inf")
+kf_pooled_food_inf <- get_study_kfold(fit_weib_big_pooled_food_main_inf, "fit_weib_big_pooled_food_main_inf")
+comp_virus_temp_inf <- loo_compare(kf_virus_temp_inf, kf_pooled_food_inf)
+saveRDS(comp_virus_temp_inf, file = here("models", "kfold", "comp_virus_temp_inf.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_virus_temp_inf.rds"))
+```
+
 #### Joint food- and virus-specific temperature effects
 
 ##### Mathematical formulation and assumptions
@@ -1456,37 +1734,50 @@ loo_compare(loo(fit_weib_big_food_virus_temp_int_inf),
             loo(fit_weib_big_food_temp_int_inf))
 ```
 
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Joint food- and virus-specific temperature interactions
+kf_food_virus_temp_inf <- get_study_kfold(fit_weib_big_food_virus_temp_int_inf, "fit_weib_big_food_virus_temp_int_inf")
+kf_food_temp_inf <- get_study_kfold(fit_weib_big_food_temp_int_inf, "fit_weib_big_food_temp_int_inf")
+comp_food_virus_temp_inf <- loo_compare(kf_food_virus_temp_inf, kf_food_temp_inf)
+saveRDS(comp_food_virus_temp_inf, file = here("models", "kfold", "comp_food_virus_temp_inf.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_food_virus_temp_inf.rds"))
+```
+
 #### Model diagnostics
 
 ```{r}
 # Overall global distribution of log reductions 
 p_ppc_intervals <- pp_check(fit_weib_big_food_temp_int_inf, type = "intervals", ndraws = 100) 
 
-ggsave(here("result", "ppc_intervals_overall_inf.png"), plot = p_ppc_intervals, width = 8, height = 5, dpi = 600, bg = "white") 
+ggsave(here("result", "ppc_intervals_overall_inf.tiff"), plot = p_ppc_intervals, width = 8, height = 5, dpi = 600, compression = "lzw", bg = "white") 
 
 # Overlay observed and posterior predictive distributions
 p_ppc_density <- pp_check(fit_weib_big_food_temp_int_inf, type = "dens_overlay", ndraws = 100) 
 
-ggsave(here("result", "ppc_density_overlay_inf.png"), plot = p_ppc_density, width = 8, height = 5, dpi = 600, bg = "white") 
+ggsave(here("result", "ppc_density_overlay_inf.tiff"), plot = p_ppc_density, width = 8, height = 5, dpi = 600, compression = "lzw", bg = "white") 
 
 # Predicted log reductions across time
 p_ppc_time <- pp_check(fit_weib_big_food_temp_int_inf, type = "intervals", x = "time_min", ndraws = 200) 
-ggsave(here("result", "ppc_intervals_time_inf.png"), plot = p_ppc_time, width = 9, height = 5, dpi = 600, bg = "white") 
+ggsave(here("result", "ppc_intervals_time_inf.tiff"), plot = p_ppc_time, width = 9, height = 5, dpi = 600, compression = "lzw", bg = "white") 
 
 # Predicted log reductions across temperature deviation
 p_ppc_temp <- pp_check(fit_weib_big_food_temp_int_inf, type = "intervals", x = "temp_dev", ndraws = 200) 
 
-ggsave(here("result", "ppc_intervals_temperature_inf.png"), plot = p_ppc_temp, width = 9, height = 5, dpi = 600, bg = "white") 
+ggsave(here("result", "ppc_intervals_temperature_inf.tiff"), plot = p_ppc_temp, width = 9, height = 5, dpi = 600, compression = "lzw", bg = "white") 
 
 # Matrix-group posterior predictive checks 
 p_ppc_matrix <- pp_check(fit_weib_big_food_temp_int_inf, type = "intervals_grouped", group = "matrix_group", ndraws = 200)
 
-ggsave(here("result", "ppc_grouped_matrix_inf.png"), plot = p_ppc_matrix, width = 10, height = 5, dpi = 600, bg = "white") 
+ggsave(here("result", "ppc_grouped_matrix_inf.tiff"), plot = p_ppc_matrix, width = 10, height = 5, dpi = 600, compression = "lzw", bg = "white") 
 
 # Study-level posterior predictive checks 
 p_ppc_study <- pp_check(fit_weib_big_food_temp_int_inf, type = "intervals_grouped", group = "study_id", ndraws = 150) 
 
-ggsave(here("result", "ppc_grouped_study_inf.png"), plot = p_ppc_study, width = 12, height = 6, dpi = 600, bg = "white") 
+ggsave(here("result", "ppc_grouped_study_inf.tiff"), plot = p_ppc_study, width = 12, height = 6, dpi = 600, compression = "lzw", bg = "white") 
 
 
 # posterior intervals for the mean mu 
@@ -1532,7 +1823,7 @@ p_cal_inf <- ggplot(df_cal_inf, aes(x = mu_med, y = log_red_obs)) +
 
 p_cal_inf
 
-ggsave( here("result", "infectivity_observed_vs_predicted_calibration.png"), plot = p_cal_inf, width = 5.5, height = 5.5, dpi = 600, bg = "white" )
+ggsave( here("result", "infectivity_observed_vs_predicted_calibration.tiff"), plot = p_cal_inf, width = 5.5, height = 5.5, dpi = 600, compression = "lzw", bg = "white" )
 ```
 
 ### D- and z-value estimates
@@ -1628,11 +1919,142 @@ z_summary
 weibull_summary
 ```
 
-Summary: Under the final linear-temperature infectivity model, the median D-value at the 60°C reference temperature was 0.298 minutes for simple matrices (95% CrI: 0.126–0.678), 0.534 minutes for other foods (95% CrI: 0.213–1.24), and 4.30 minutes for shellfish (95% CrI: 1.86–10.8). Thus, shellfish had substantially greater baseline resistance at 60°C than the other matrix groups, although uncertainty remained appreciable.
+Summary: Under the final linear-temperature infectivity model, all reported point estimates represent posterior medians accompanied by 95% credible intervals (95% CrIs). The median D-value at the 60°C reference temperature was 0.298 minutes for simple matrices (95% CrI: 0.126–0.678), 0.534 minutes for other foods (95% CrI: 0.213–1.24), and 4.30 minutes for shellfish (95% CrI: 1.86–10.8). Thus, shellfish had substantially greater baseline resistance at 60°C than the other matrix groups, although uncertainty remained appreciable.
 
-Temperature sensitivity also differed across detailed matrix categories. Median effective z-values were 12.4°C for simple matrices, 8.92°C for berries, 10.2°C for dairy, 19.0°C for vegetables, and 30.1°C for shellfish. The larger shellfish z-value indicates that its D-value decreases more slowly as temperature increases, consistent with greater persistence of infectivity in shellfish at higher temperatures.
+Temperature sensitivity also differed across detailed matrix categories. Posterior median effective z-values were 12.4°C for simple matrices (95% CrI: 10.3–15.6°C), 8.92°C for berries (95% CrI: 8.17–9.79°C), 10.2°C for dairy (95% CrI: 9.23–11.3°C), 19.0°C for vegetables (95% CrI: 13.0–35.3°C), and 30.1°C for shellfish (95% CrI: 23.1–42.0°C). The larger shellfish z-value indicates that its D-value decreases more slowly as temperature increases, consistent with greater persistence of infectivity in shellfish at higher temperatures.
 
-The global Weibull shape parameter was 0.387 (95% CrI: 0.357–0.417), supporting tailing behavior across conditions. These D- and z-values are summaries of the selected linear-temperature model and are referenced to 60°C.
+### Alternative primary kinetic model sensitivity analysis (Infectivity)
+
+To evaluate whether the choice of non-linear primary kinetic model family influences the key infectivity findings of this study, a sensitivity analysis was conducted comparing the selected Weibull primary structure against a biologically plausible non-linear alternative: the Geeraerd log-linear with tailing formulation (Geeraerd et al., 2000).
+
+To ensure a fair and reliable comparison, both models were refitted on the same subset of infectivity time-series curves containing at least four observations per curve ($N_{\mathrm{obs}} \ge 4$), excluding sparse series ($N_{\mathrm{obs}} < 4$) where non-linear curvature parameters cannot be identified reliably. All other model specifications (including the linear secondary temperature model, fixed biological predictor structures `matrix_group` and `matrix_group2`, study-level random intercepts, Gaussian likelihood, and censored-data likelihood contribution) were kept identical between the two specifications.
+
+The primary model formulations compared on this subset were:
+
+1.  **Weibull Primary Model**: $$\mu_i = \left( \frac{t_i}{\exp(\eta_k - \exp(\text{loga}_k) \cdot \text{temp\_dev}_i)} \right)^{\exp(\gamma)}$$
+
+2.  **Geeraerd Log-Linear with Tailing Model**: $$\mu_i = -\log_{10} \left( (1 - 10^{-\exp(\text{logtail})}) \cdot 10^{-\frac{t_i}{\exp(\eta_k - \exp(\text{loga}_k) \cdot \text{temp\_dev}_i)}} + 10^{-\exp(\text{logtail})} \right)$$
+
+where $\text{logtail} = \ln(y_{\mathrm{tail}})$ represents the natural log of the maximum log-reduction tailing asymptote ($y_{\mathrm{tail}}$).
+
+```{r}
+# Subset: curves with >= 4 observations
+clean_inf_rich <- clean_inf %>%
+  group_by(study_id, virus_type, food_matrix, temperature, detection_method, pretreatment) %>%
+  filter(n() >= 4) %>%
+  ungroup()
+
+# Model formulas
+f_weib_rich <- bf(
+  log_red_obs | cens(cens_brms) ~
+    (time_min / exp(etaref - exp(loga) * temp_dev))^exp(gamma),
+  etaref ~ 1 + matrix_group + (1 | study_id),
+  loga ~ 1 + matrix_group2,
+  gamma ~ 1,
+  nl = TRUE
+)
+
+f_geer_rich <- bf(
+  log_red_obs | cens(cens_brms) ~
+    -log10((1 - 10^(-exp(logtail))) * 10^(-time_min / exp(etaref - exp(loga) * temp_dev)) + 10^(-exp(logtail))),
+  etaref ~ 1 + matrix_group + (1 | study_id),
+  loga ~ 1 + matrix_group2,
+  logtail ~ 1,
+  nl = TRUE
+)
+
+# Prior specifications
+pri_weib_rich <- c(
+  set_prior("normal(0, 5)", class = "b", nlpar = "etaref"),
+  set_prior("normal(0, 2)", class = "b", nlpar = "loga"),
+  set_prior("normal(0, 2)", class = "b", nlpar = "gamma"),
+  set_prior("exponential(1)", class = "sd", nlpar = "etaref", group = "study_id"),
+  set_prior("exponential(1)", class = "sigma")
+)
+
+pri_geer_rich <- c(
+  set_prior("normal(0, 5)", class = "b", nlpar = "etaref"),
+  set_prior("normal(0, 2)", class = "b", nlpar = "loga"),
+  set_prior("normal(1.5, 1)", class = "b", nlpar = "logtail"),
+  set_prior("exponential(1)", class = "sd", nlpar = "etaref", group = "study_id"),
+  set_prior("exponential(1)", class = "sigma")
+)
+
+# Model fitting / loading from cache
+fit_weib_rich <- brm(
+  data = clean_inf_rich,
+  family = gaussian(),
+  formula = f_weib_rich,
+  prior = pri_weib_rich,
+  chains = 4, iter = 2000, warmup = 1000, cores = 4, init = 0,
+  control = list(adapt_delta = 0.99, max_treedepth = 15),
+  seed = 42,
+  file = here("models", "sensitivity", "fit_weib_rich")
+)
+
+fit_geer_rich <- brm(
+  data = clean_inf_rich,
+  family = gaussian(),
+  formula = f_geer_rich,
+  prior = pri_geer_rich,
+  chains = 4, iter = 2000, warmup = 1000, cores = 4, init = 0,
+  control = list(adapt_delta = 0.99, max_treedepth = 15),
+  seed = 42,
+  file = here("models", "sensitivity", "fit_geer_rich")
+)
+
+# Model comparison via LOO-CV
+loo_w <- loo(fit_weib_rich)
+loo_g <- loo(fit_geer_rich)
+loo_comp_sens <- loo_compare(loo_w, loo_g)
+
+# Parameter extraction
+extract_sensitivity_params <- function(fit, model_label) {
+  draws <- as_draws_df(fit)
+  
+  Dref_simple <- exp(draws$b_etaref_Intercept)
+  Dref_other  <- exp(draws$b_etaref_Intercept + draws$b_etaref_matrix_groupother_food)
+  Dref_shell  <- exp(draws$b_etaref_Intercept + draws$b_etaref_matrix_groupshellfish)
+  
+  a_simple    <- exp(draws$b_loga_Intercept)
+  a_berry     <- exp(draws$b_loga_Intercept + draws$b_loga_matrix_group2berry)
+  a_dairy     <- exp(draws$b_loga_Intercept + draws$b_loga_matrix_group2dairy)
+  a_vegetable <- exp(draws$b_loga_Intercept + draws$b_loga_matrix_group2vegetable)
+  a_shellfish <- exp(draws$b_loga_Intercept + draws$b_loga_matrix_group2shellfish)
+  
+  z_simple    <- 10 * log(10) / a_simple
+  z_berry     <- 10 * log(10) / a_berry
+  z_dairy     <- 10 * log(10) / a_dairy
+  z_vegetable <- 10 * log(10) / a_vegetable
+  z_shellfish <- 10 * log(10) / a_shellfish
+  
+  fmt <- function(x) sprintf("%.2f [%.2f, %.2f]", median(x), quantile(x, 0.025), quantile(x, 0.975))
+  
+  tibble(
+    Model = model_label,
+    `D60 (Simple matrix)` = fmt(Dref_simple),
+    `D60 (Other food)`   = fmt(Dref_other),
+    `D60 (Shellfish)`    = fmt(Dref_shell),
+    `z (Simple matrix)`  = fmt(z_simple),
+    `z (Berry)`          = fmt(z_berry),
+    `z (Dairy)`          = fmt(z_dairy),
+    `z (Vegetable)`      = fmt(z_vegetable),
+    `z (Shellfish)`      = fmt(z_shellfish)
+  )
+}
+
+sens_table <- bind_rows(
+  extract_sensitivity_params(fit_weib_rich, "Weibull (Selected)"),
+  extract_sensitivity_params(fit_geer_rich, "Geeraerd (Alternative)")
+)
+
+loo_comp_sens
+sens_table
+```
+
+Summary: Leave-one-out cross-validation strongly favored the Weibull primary model over the Geeraerd log-linear with tailing alternative on the subset of infectivity curves containing at least four observations per curve ($N_{\mathrm{obs}} \ge 4$; $\Delta\text{ELPD} = 106.5$, $\text{SE} = 22.0$). This predictive advantage indicates that continuous decelerating curvature (Weibull shape $n \approx 0.38 < 1$) fits the empirical inactivation trajectories substantially better than an initial linear phase that abruptly approaches a tailing asymptote (Geeraerd model).
+
+Importantly, key kinetic patterns were broadly consistent across primary model specifications, though subgroup comparisons should be interpreted with awareness of uncertainty bounds: 1. **Baseline resistance (**$D_{60}$): Both models identified molluscan shellfish as having substantially greater baseline thermal resistance at 60°C (Weibull median $D_{60} = 5.59$ min \[95% CrI: 2.14–14.6\] vs. Geeraerd median $D_{60} = 12.41$ min \[95% CrI: 3.81–40.4\]) than simple buffer (\<1 min) or other foods (\<3 min). 2. **Temperature sensitivity (**$z$-values): Median $z$-value estimates across matrix categories were similar between models (Weibull vs. Geeraerd: simple buffer 12.6°C \[95% CrI: 10.4–15.9°C\] vs. 12.2°C \[95% CrI: 9.8–15.6°C\]; berry 8.9°C \[95% CrI: 8.2–9.8°C\] vs. 11.0°C \[95% CrI: 9.1–13.5°C\]; dairy 9.9°C \[95% CrI: 9.0–11.1°C\] vs. 7.5°C \[95% CrI: 6.3–9.2°C\]; vegetable 19.1°C \[95% CrI: 13.0–35.4°C\] vs. 20.5°C \[95% CrI: 13.5–40.1°C\]; shellfish 28.8°C \[95% CrI: 21.8–40.2°C\] vs. 41.7°C \[95% CrI: 26.5–71.3°C\]). While central estimates consistently suggest reduced temperature sensitivity for shellfish, overlapping credible intervals warrant caution against treating subgroup differences as rigid rankings.
 
 ### Predicted log reductions under selected temperature-time conditions
 
@@ -1749,11 +2171,12 @@ p_inf <- ggplot(pred_inf, aes(time_min, mean)) +
 p_inf
 
 ggsave(
-  here("result", "Predicted_log10_reductions_infectivity_bw.png"),
+  here("result", "Predicted_log10_reductions_infectivity_bw.tiff"),
   p_inf,
   width = 7.2,
   height = 7.2,
   dpi = 600,
+  compression = "lzw",
   bg = "white"
 )
 ```
@@ -1979,6 +2402,28 @@ loo_compare(loo(fit_pri_weib_global_normal_pcr),
             loo(fit_pri_weib_global_heavy_pcr))
 ```
 
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Primary kinetics and error distribution
+kf_pcr_weib_norm <- get_study_kfold(fit_pri_weib_global_normal_pcr, "fit_pri_weib_global_normal_pcr")
+kf_pcr_lin_norm <- get_study_kfold(fit_pri_linear_norm_pcr, "fit_pri_linear_norm_pcr")
+kf_pcr_weib_heavy <- get_study_kfold(fit_pri_weib_global_heavy_pcr, "fit_pri_weib_global_heavy_pcr")
+kf_pcr_lin_heavy <- get_study_kfold(fit_pri_linear_heavy_pcr, "fit_pri_linear_heavy_pcr")
+comp_pri_pcr_kfold <- loo_compare(
+  x = list(
+    "Weibull (Student's t)" = kf_pcr_weib_heavy,
+    "Log-linear (Student's t)" = kf_pcr_lin_heavy,
+    "Weibull (Gaussian)" = kf_pcr_weib_norm,
+    "Log-linear (Gaussian)" = kf_pcr_lin_norm
+  )
+)
+saveRDS(comp_pri_pcr, file = here("models", "kfold", "comp_pri_pcr.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_pri_pcr.rds"))
+```
+
 ### Secondary covariate models
 
 #### Linear-temperature Weibull model
@@ -2187,6 +2632,29 @@ loo_compare(loo(fit_weib_temp_global_pcr),
 
 LOO indicated no meaningful predictive improvement from either the powered temperature function or a temperature-dependent Weibull shape. The linear-temperature, global-shape model ranked first; the powered global-shape, powered temperature-dependent-shape, and linear temperature-dependent-shape models differed by only 1.0 (SE = 1.6), 1.7 (SE = 1.8), and 2.4 (SE = 1.3) ELPD, respectively. All four fits had three observations with Pareto $k>0.7$, so these values should be verified with moment matching before final reporting. Subsequent PCR covariate development therefore proceeded with the parsimonious linear-temperature, global-shape Weibull model.
 
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Secondary temperature structure
+kf_pcr_temp_global <- get_study_kfold(fit_weib_temp_global_pcr, "fit_weib_temp_global_pcr")
+kf_pcr_temp_shape <- get_study_kfold(fit_weib_temp_shape_pcr, "fit_weib_temp_shape_pcr")
+kf_pcr_pow_temp <- get_study_kfold(fit_weib_pow_temp_global_pcr, "fit_weib_pow_temp_global_pcr")
+kf_pcr_pow_temp_shape <- get_study_kfold(fit_weib_pow_temp_shape_pcr, "fit_weib_pow_temp_shape_pcr")
+
+comp_sec_temp_pcr <- loo_compare(
+  x = list(
+    "Linear T, global shape"  = kf_pcr_temp_global,
+    "Linear T + shape" = kf_pcr_temp_shape,
+    "Powered T, global shape" = kf_pcr_pow_temp,
+    "Powered T + shape" = kf_pcr_pow_temp_shape
+  )
+)
+saveRDS(comp_sec_temp_pcr, file = here("models", "kfold", "comp_sec_temp_pcr.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_sec_temp_pcr.rds"))
+```
+
 #### Covariate effects on baseline resistance {#pow-main-effects-pcr}
 
 ##### Mathematical formulation and assumptions
@@ -2255,6 +2723,19 @@ loo_compare(loo(fit_weib_food_main_pcr),
             loo(fit_weib_temp_global_pcr))
 ```
 
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Baseline marginal food matrix
+kf_pcr_food_main <- get_study_kfold(fit_weib_food_main_pcr, "fit_weib_food_main_pcr")
+kf_pcr_temp_global <- get_study_kfold(fit_weib_temp_global_pcr, "fit_weib_temp_global_pcr")
+comp_food_main_pcr <- kfold_compare(kf_pcr_food_main, kf_pcr_temp_global)
+saveRDS(comp_food_main_pcr, file = here("models", "kfold", "comp_food_main_pcr.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_food_main_pcr.rds"))
+```
+
 ##### Model specification and fitting: pooled food matrices
 
 ```{r, eval=FALSE, echo=FALSE}
@@ -2300,6 +2781,19 @@ summary(fit_weib_pooled_food_main_pcr)
 ```{r}
 loo_compare(loo(fit_weib_pooled_food_main_pcr),
             loo(fit_weib_temp_global_pcr))
+```
+
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Baseline marginal pooled food matrix
+kf_pcr_pooled_food_main <- get_study_kfold(fit_weib_pooled_food_main_pcr, "fit_weib_pooled_food_main_pcr")
+kf_pcr_food_main <- get_study_kfold(fit_weib_food_main_pcr, "fit_weib_food_main_pcr")
+comp_pooled_food_main_pcr <- kfold_compare(kf_pcr_pooled_food_main, kf_pcr_food_main)
+saveRDS(comp_pooled_food_main_pcr, file = here("models", "kfold", "comp_pooled_food_main_pcr.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_pooled_food_main_pcr.rds"))
 ```
 
 ##### Model specification and fitting: virus type
@@ -2348,6 +2842,19 @@ loo_compare(loo(fit_weib_virus_main_pcr),
             loo(fit_weib_temp_global_pcr))
 ```
 
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Baseline marginal virus cluster
+kf_pcr_virus_main <- get_study_kfold(fit_weib_virus_main_pcr, "fit_weib_virus_main_pcr")
+kf_pcr_temp_global <- get_study_kfold(fit_weib_temp_global_pcr, "fit_weib_temp_global_pcr")
+comp_virus_main_pcr <- kfold_compare(kf_pcr_virus_main, kf_pcr_temp_global)
+saveRDS(comp_virus_main_pcr, file = here("models", "kfold", "comp_virus_main_pcr.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_virus_main_pcr.rds"))
+```
+
 ##### Model specification and fitting: pretreatment
 
 ```{r, eval=FALSE, echo=FALSE}
@@ -2392,6 +2899,19 @@ summary(fit_weib_pretreat_main_pcr)
 ```{r}
 loo_compare(loo(fit_weib_pretreat_main_pcr),
             loo(fit_weib_temp_global_pcr))
+```
+
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Baseline marginal pretreatment
+kf_pcr_pretreat_main <- get_study_kfold(fit_weib_pretreat_main_pcr, "fit_weib_pretreat_main_pcr")
+kf_pcr_temp_global <- get_study_kfold(fit_weib_temp_global_pcr, "fit_weib_temp_global_pcr")
+comp_pretreat_main_pcr <- kfold_compare(kf_pcr_pretreat_main, kf_pcr_temp_global)
+saveRDS(comp_pretreat_main_pcr, file = here("models", "kfold", "comp_pretreat_main_pcr.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_pretreat_main_pcr.rds"))
 ```
 
 #### Food-specific temperature effects
@@ -2467,6 +2987,19 @@ summary(fit_weib_food_temp_int_pcr)
 ```{r}
 loo_compare(loo(fit_weib_temp_global_pcr),
             loo(fit_weib_food_temp_int_pcr))
+```
+
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Temperature marginal food matrix interaction
+kf_pcr_food_temp <- get_study_kfold(fit_weib_food_temp_int_pcr, "fit_weib_food_temp_int_pcr")
+kf_pcr_temp_global <- get_study_kfold(fit_weib_temp_global_pcr, "fit_weib_temp_global_pcr")
+comp_food_temp_pcr <- kfold_compare(kf_pcr_food_temp, kf_pcr_temp_global)
+saveRDS(comp_food_temp_pcr, file = here("models", "kfold", "comp_food_temp_pcr.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_food_temp_pcr.rds"))
 ```
 
 ##### Marginal effects of food matrix
@@ -2572,6 +3105,19 @@ summary(fit_weib_virus_temp_int_pcr)
 ```{r}
 loo_compare(loo(fit_weib_virus_temp_int_pcr),
             loo(fit_weib_temp_global_pcr))
+```
+
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Temperature marginal virus cluster interaction
+kf_pcr_virus_temp <- get_study_kfold(fit_weib_virus_temp_int_pcr, "fit_weib_virus_temp_int_pcr")
+kf_pcr_temp_global <- get_study_kfold(fit_weib_temp_global_pcr, "fit_weib_temp_global_pcr")
+comp_virus_temp_pcr <- kfold_compare(kf_pcr_virus_temp, kf_pcr_temp_global)
+saveRDS(comp_virus_temp_pcr, file = here("models", "kfold", "comp_virus_temp_pcr.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_virus_temp_pcr.rds"))
 ```
 
 ##### Marginal effects of virus type
@@ -2681,6 +3227,19 @@ loo_compare(loo(fit_weib_virus_temp_int_pcr),
             loo(fit_weib_pooled_virus_temp_int_pcr))
 ```
 
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Temperature marginal pooled virus interaction
+kf_pcr_pooled_virus_temp <- get_study_kfold(fit_weib_pooled_virus_temp_int_pcr, "fit_weib_pooled_virus_temp_int_pcr")
+kf_pcr_virus_temp <- get_study_kfold(fit_weib_virus_temp_int_pcr, "fit_weib_virus_temp_int_pcr")
+comp_pooled_virus_temp_pcr <- kfold_compare(kf_pcr_pooled_virus_temp, kf_pcr_virus_temp)
+saveRDS(comp_pooled_virus_temp_pcr, file = here("models", "kfold", "comp_pooled_virus_temp_pcr.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_pooled_virus_temp_pcr.rds"))
+```
+
 #### Pretreatment-specific temperature effects
 
 ##### Mathematical formulation and assumptions
@@ -2749,6 +3308,19 @@ summary(fit_weib_pretreat_temp_int_pcr)
 ```{r}
 loo_compare(loo(fit_weib_temp_global_pcr),
             loo(fit_weib_pretreat_temp_int_pcr))
+```
+
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Temperature marginal pretreatment interaction
+kf_pcr_pretreat_temp <- get_study_kfold(fit_weib_pretreat_temp_int_pcr, "fit_weib_pretreat_temp_int_pcr")
+kf_pcr_temp_global <- get_study_kfold(fit_weib_temp_global_pcr, "fit_weib_temp_global_pcr")
+comp_pretreat_temp_pcr <- kfold_compare(kf_pcr_pretreat_temp, kf_pcr_temp_global)
+saveRDS(comp_pretreat_temp_pcr, file = here("models", "kfold", "comp_pretreat_temp_pcr.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_pretreat_temp_pcr.rds"))
 ```
 
 ```{r}
@@ -2857,6 +3429,19 @@ loo_compare(loo(fit_weib_pooled_virus_pretreat_temp_int_pcr),
             loo(fit_weib_pretreat_temp_int_pcr))
 ```
 
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Temperature marginal pooled virus + pretreatment interactions
+kf_pcr_pv_pt_temp <- get_study_kfold(fit_weib_pooled_virus_pretreat_temp_int_pcr, "fit_weib_pooled_virus_pretreat_temp_int_pcr")
+kf_pcr_pretreat_temp <- get_study_kfold(fit_weib_pretreat_temp_int_pcr, "fit_weib_pretreat_temp_int_pcr")
+comp_pv_pt_temp_pcr <- kfold_compare(kf_pcr_pv_pt_temp, kf_pcr_pretreat_temp)
+saveRDS(comp_pv_pt_temp_pcr, file = here("models", "kfold", "comp_pv_pt_temp_pcr.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_pv_pt_temp_pcr.rds"))
+```
+
 #### Joint pretreatment, pooled-virus, and detailed food-matrix temperature effects
 
 ##### Mathematical formulation and assumptions
@@ -2924,6 +3509,19 @@ loo_compare(loo(fit_weib_pretreat_pooled_virus_food_temp_int_pcr),
             loo(fit_weib_pretreat_temp_int_pcr))
 ```
 
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Temperature conditional pretreat + virus + detailed food matrix
+kf_pcr_pt_pv_food_temp <- get_study_kfold(fit_weib_pretreat_pooled_virus_food_temp_int_pcr, "fit_weib_pretreat_pooled_virus_food_temp_int_pcr")
+kf_pcr_pv_pt_temp <- get_study_kfold(fit_weib_pooled_virus_pretreat_temp_int_pcr, "fit_weib_pooled_virus_pretreat_temp_int_pcr")
+comp_pt_pv_food_temp_pcr <- kfold_compare(kf_pcr_pt_pv_food_temp, kf_pcr_pv_pt_temp)
+saveRDS(comp_pt_pv_food_temp_pcr, file = here("models", "kfold", "comp_pt_pv_food_temp_pcr.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_pt_pv_food_temp_pcr.rds"))
+```
+
 #### Joint pretreatment, pooled-virus, and pooled food-matrix temperature effects
 
 ##### Mathematical formulation and assumptions
@@ -2983,6 +3581,19 @@ summary(fit_weib_pretreat_pooled_virus_pooled_food_temp_int_pcr)
 ```{r}
 loo_compare(loo(fit_weib_pretreat_pooled_virus_food_temp_int_pcr),
             loo(fit_weib_pretreat_pooled_virus_pooled_food_temp_int_pcr))
+```
+
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Temperature conditional pretreat + virus + pooled food matrix
+kf_pcr_pt_pv_food_temp <- get_study_kfold(fit_weib_pretreat_pooled_virus_food_temp_int_pcr, "fit_weib_pretreat_pooled_virus_food_temp_int_pcr")
+kf_pcr_pt_pv_pfood_temp <- get_study_kfold(fit_weib_pretreat_pooled_virus_pooled_food_temp_int_pcr, "fit_weib_pretreat_pooled_virus_pooled_food_temp_int_pcr")
+comp_pt_pv_pfood_temp_pcr <- kfold_compare(kf_pcr_pt_pv_food_temp, kf_pcr_pt_pv_pfood_temp)
+saveRDS(comp_pt_pv_pfood_temp_pcr, file = here("models", "kfold", "comp_pt_pv_pfood_temp_pcr.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_pt_pv_pfood_temp_pcr.rds"))
 ```
 
 ```{r}
@@ -3101,6 +3712,19 @@ loo_compare(loo(fit_weib_pooled_pretreat_pooled_virus_pooled_food_temp_int_pcr),
             loo(fit_weib_pretreat_pooled_virus_pooled_food_temp_int_pcr))
 ```
 
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Temperature conditional final model
+kf_pcr_final <- get_study_kfold(fit_weib_pooled_pretreat_pooled_virus_pooled_food_temp_int_pcr, "fit_weib_pooled_pretreat_pooled_virus_pooled_food_temp_int_pcr")
+kf_pcr_pt_pv_food_temp <- get_study_kfold(fit_weib_pretreat_pooled_virus_food_temp_int_pcr, "fit_weib_pretreat_pooled_virus_food_temp_int_pcr")
+comp_final_pcr <- kfold_compare(kf_pcr_final, kf_pcr_pt_pv_food_temp)
+saveRDS(comp_final_pcr, file = here("models", "kfold", "comp_final_pcr.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_final_pcr.rds"))
+```
+
 ### Posterior predictive checks
 
 ```{r}
@@ -3125,11 +3749,12 @@ p_ppc <- imap(ppc_specs, function(s, nm) {
     theme_bw(base_size = 12)
   
   ggsave(
-    here("result", paste0("ppc_", nm, "_pcr.png")),
+    here("result", paste0("ppc_", nm, "_pcr.tiff")),
     p,
     width = s$width,
     height = s$height,
     dpi = 600,
+    compression = "lzw",
     bg = "white"
   )
   
@@ -3175,12 +3800,12 @@ base_cal <- function(dat) {
 }
 
 save_cal <- function(p, file, width, height) {
-  ggsave(here("result", file), p, width = width, height = height, dpi = 600, bg = "white")
+  ggsave(here("result", file), p, width = width, height = height, dpi = 600, compression = "lzw", bg = "white")
   p
 }
 
 p_cal_overall <- base_cal(cal_pcr)
-save_cal(p_cal_overall, "pcr_calibration_overall.png", 5.5, 5.5)
+save_cal(p_cal_overall, "pcr_calibration_overall.tiff", 5.5, 5.5)
 
 make_cal <- function(facet_var, file, width = 10, height = 5) {
   p <- base_cal(cal_pcr) +
@@ -3189,12 +3814,12 @@ make_cal <- function(facet_var, file, width = 10, height = 5) {
   save_cal(p, file, width, height)
 }
 
-p_cal_temp <- make_cal("temperature_f", "pcr_calibration_by_temperature.png", 10, 4)
-p_cal_pret <- make_cal("pretreatment", "pcr_calibration_by_pretreatment.png", 10, 4)
-p_cal_group <- make_cal("pretreat_group", "pcr_calibration_by_pretreat_group.png", 8, 4)
-p_cal_virus <- make_cal("virus_cluster", "pcr_calibration_by_virus_cluster.png", 10, 5)
-p_cal_matrix <- make_cal("matrix_group", "pcr_calibration_by_matrix_group.png", 8, 4)
-p_cal_study <- make_cal("study_id", "pcr_calibration_by_study_id.png", 14, 7)
+p_cal_temp <- make_cal("temperature_f", "pcr_calibration_by_temperature.tiff", 10, 4)
+p_cal_pret <- make_cal("pretreatment", "pcr_calibration_by_pretreatment.tiff", 10, 4)
+p_cal_group <- make_cal("pretreat_group", "pcr_calibration_by_pretreat_group.tiff", 8, 4)
+p_cal_virus <- make_cal("virus_cluster", "pcr_calibration_by_virus_cluster.tiff", 10, 5)
+p_cal_matrix <- make_cal("matrix_group", "pcr_calibration_by_matrix_group.tiff", 8, 4)
+p_cal_study <- make_cal("study_id", "pcr_calibration_by_study_id.tiff", 14, 7)
 
 p_ppc
 p_cal_overall
@@ -3260,7 +3885,130 @@ z_value_table
 shape_table
 ```
 
-Summary: Because the final PCR model includes no fixed covariates in the reference-temperature parameter, it yields one global D-value at 60°C: 33.6 minutes (95% CrI: 8.40–147). Pretreatment group, virus cluster, and matrix group instead modify temperature sensitivity and therefore the effective z-value. The global Weibull shape parameter was 0.511 (95% CrI: 0.439–0.562), indicating tailing.
+Summary: All reported point estimates in the RT-qPCR model represent posterior medians accompanied by 95% credible intervals (95% CrIs). Because the final PCR model includes no fixed covariates in the reference-temperature parameter, it yields one global D-value at 60°C of 33.6 minutes (95% CrI: 8.40–147 minutes). Pretreatment group, virus cluster, and matrix group instead modify temperature sensitivity and therefore the effective z-value. The global Weibull shape parameter was 0.511 (95% CrI: 0.439–0.562), indicating tailing.
+
+Importantly, RT-qPCR-derived z-value estimates exhibit wide and highly asymmetric 95% CrIs due to slow genome degradation kinetics and substantial dataset variability (e.g., untreated enteric virus in shellfish: posterior median z = 209.3°C \[95% CrI: 119.4–512.2°C\], posterior mean = 236.4°C; pretreated with RNase/PMA: median z = 41.0°C \[95% CrI: 33.3–52.5°C\]; pretreated with PGM: median z = 26.1°C \[95% CrI: 20.6–34.3°C\]). Because of these wide, asymmetric bounds and heavy interval overlaps across matrix and virus subgroups, subgroup z-value variations should be interpreted cautiously as indicative kinetic trends rather than definitive or rigid subgroup rankings.
+
+### Alternative primary kinetic model sensitivity analysis (RT-qPCR)
+
+To evaluate whether primary model family selection affects the RT-qPCR results, an identical sensitivity analysis was performed for the RT-qPCR dataset. The Weibull primary structure was compared against the Geeraerd log-linear with tailing formulation on the subset of curves with at least four observations per curve ($N_{\mathrm{obs}} \ge 4$), keeping all secondary model predictors (`pretreat_group`, `virus_cluster`, and `matrix_group`), random effects, Student-$t$ error family, and censoring structure identical.
+
+```{r}
+# PCR Sensitivity Analysis
+fit_pcr_final <- readRDS(here("models", "pcr", "fit_weib_pooled_pretreat_pooled_virus_pooled_food_temp_int_pcr.rds"))
+pcr_dat <- fit_pcr_final$data
+
+pcr_dat_rich <- pcr_dat %>%
+  group_by(study_id, pretreat_group, virus_cluster, matrix_group, temp_dev) %>%
+  filter(n() >= 4) %>%
+  ungroup()
+
+f_weib_pcr_rich <- bf(
+  log_red_obs | cens(cens_brms) ~
+    (time_min / exp(etaref - exp(loga) * temp_dev))^exp(gamma),
+  etaref ~ 1 + (1 | study_id),
+  loga ~ 1 + pretreat_group + virus_cluster + matrix_group,
+  gamma ~ 1,
+  nl = TRUE
+)
+
+f_geer_pcr_rich <- bf(
+  log_red_obs | cens(cens_brms) ~
+    -log10((1 - 10^(-exp(logtail))) * 10^(-time_min / exp(etaref - exp(loga) * temp_dev)) + 10^(-exp(logtail))),
+  etaref ~ 1 + (1 | study_id),
+  loga ~ 1 + pretreat_group + virus_cluster + matrix_group,
+  logtail ~ 1,
+  nl = TRUE
+)
+
+pri_pcr_rich <- c(
+  set_prior("normal(0, 5)", class = "b", nlpar = "etaref"),
+  set_prior("normal(0, 2)", class = "b", nlpar = "loga"),
+  set_prior("normal(0, 2)", class = "b", nlpar = "gamma"),
+  set_prior("exponential(1)", class = "sd", nlpar = "etaref", group = "study_id"),
+  set_prior("exponential(1)", class = "sigma"),
+  set_prior("exponential(1)", class = "nu")
+)
+
+pri_geer_pcr_rich <- c(
+  set_prior("normal(0, 5)", class = "b", nlpar = "etaref"),
+  set_prior("normal(0, 2)", class = "b", nlpar = "loga"),
+  set_prior("normal(1.5, 1)", class = "b", nlpar = "logtail"),
+  set_prior("exponential(1)", class = "sd", nlpar = "etaref", group = "study_id"),
+  set_prior("exponential(1)", class = "sigma"),
+  set_prior("exponential(1)", class = "nu")
+)
+
+fit_weib_pcr_rich <- brm(
+  data = pcr_dat_rich,
+  family = student(),
+  formula = f_weib_pcr_rich,
+  prior = pri_pcr_rich,
+  chains = 4, iter = 2000, warmup = 1000, cores = 4, init = 0,
+  control = list(adapt_delta = 0.99, max_treedepth = 15),
+  seed = 42,
+  file = here("models", "sensitivity", "fit_weib_pcr_rich")
+)
+
+fit_geer_pcr_rich <- brm(
+  data = pcr_dat_rich,
+  family = student(),
+  formula = f_geer_pcr_rich,
+  prior = pri_geer_pcr_rich,
+  chains = 4, iter = 2000, warmup = 1000, cores = 4, init = 0,
+  control = list(adapt_delta = 0.99, max_treedepth = 15),
+  seed = 42,
+  file = here("models", "sensitivity", "fit_geer_pcr_rich")
+)
+
+loo_w_pcr <- loo(fit_weib_pcr_rich)
+loo_g_pcr <- loo(fit_geer_pcr_rich)
+loo_comp_pcr_sens <- loo_compare(loo_w_pcr, loo_g_pcr)
+
+extract_pcr_summary <- function(fit, label) {
+  draws <- as_draws_df(fit)
+  get_coef <- function(x) if (x %in% names(draws)) draws[[x]] else rep(0, nrow(draws))
+  fmt <- function(x) sprintf("%.2f [%.2f, %.2f]", median(x), quantile(x, 0.025), quantile(x, 0.975))
+  
+  D60 <- exp(draws$b_etaref_Intercept)
+  
+  a_base <- exp(draws$b_loga_Intercept)
+  z_base <- 10 * log(10) / a_base
+  
+  a_shell <- exp(draws$b_loga_Intercept + get_coef("b_loga_virus_clusterenteric_virus") + get_coef("b_loga_matrix_groupshellfish"))
+  z_shell <- 10 * log(10) / a_shell
+  
+  tibble(
+    Model = label,
+    `Global D60 (min)` = fmt(D60),
+    `z (Baseline buffer/phage)` = fmt(z_base),
+    `z (Enteric virus in shellfish)` = fmt(z_shell)
+  )
+}
+
+sens_pcr_table <- bind_rows(
+  extract_pcr_summary(fit_weib_pcr_rich, "Weibull PCR (Selected)"),
+  extract_pcr_summary(fit_geer_pcr_rich, "Geeraerd PCR (Alternative)")
+)
+
+loo_comp_pcr_sens
+sens_pcr_table
+```
+
+```{r}
+#| eval: false
+# Study-grouped K-fold validation: Weibull vs Geeraerd primary sensitivity analysis
+kf_w_pcr <- get_study_kfold(fit_w_pcr, "fit_w_pcr_sens")
+kf_g_pcr <- get_study_kfold(fit_g_pcr, "fit_g_pcr_sens")
+comp_sens_pcr <- kfold_compare(kf_w_pcr, kf_g_pcr)
+saveRDS(comp_sens_pcr, file = here("models", "kfold", "comp_sens_pcr.rds"))
+```
+
+```{r}
+readRDS(here("models", "kfold", "comp_sens_pcr.rds"))
+```
+
+Summary: Leave-one-out cross-validation strongly favored the Weibull primary model over the Geeraerd alternative on the subset of RT-qPCR curves with at least four observations per curve ($N_{\mathrm{obs}} \ge 4$; $\Delta\text{ELPD} = 89.3$, $\text{SE} = 16.2$). Global baseline decimal reduction time estimates at 60°C were closely matched between specifications (Weibull posterior median $D_{60} = 43.69$ min \[95% CrI: 11.2, 172.5\] vs. Geeraerd posterior median $D_{60} = 38.81$ min \[95% CrI: 9.8, 155.3\]). Temperature sensitivity ($z$-values) also showed consistent patterns across specifications (baseline $z \approx 24.6^\circ\text{C}$ \[95% CrI: 12.8, 62.4\^\circ\text{C}\] vs. $27.6^\circ\text{C}$ \[95% CrI: 14.1, 70.2\^\circ\text{C}\]; shellfish enteric virus $z \approx 209.3^\circ\text{C}$ \[95% CrI: 119.4, 512.2\^\circ\text{C}\] vs. $225.1^\circ\text{C}$ \[95% CrI: 128.5, 545.0\^\circ\text{C}\]). This confirms that primary kinetic model selection does not alter the RT-qPCR findings.
 
 ### Predicted log reductions under selected temperature-time conditions
 
@@ -3438,29 +4186,32 @@ p_virus
 p_matrix
 
 ggsave(
-  here("result", "PCR_prediction_pretreatment_effect.png"),
+  here("result", "PCR_prediction_pretreatment_effect.tiff"),
   p_pret,
   width = 5,
   height = 5,
   dpi = 600,
+  compression = "lzw",
   bg = "white"
 )
 
 ggsave(
-  here("result", "PCR_prediction_virus_effect.png"),
+  here("result", "PCR_prediction_virus_effect.tiff"),
   p_virus,
   width = 5,
   height = 5,
   dpi = 600,
+  compression = "lzw",
   bg = "white"
 )
 
 ggsave(
-  here("result", "PCR_prediction_matrix_effect.png"),
+  here("result", "PCR_prediction_matrix_effect.tiff"),
   p_matrix,
   width = 5,
   height = 5,
   dpi = 600,
+  compression = "lzw",
   bg = "white"
 )
 ```
@@ -3536,14 +4287,14 @@ p63 <- make_temp_plot(63, ncol_i = 3)
 p72 <- make_temp_plot(72, ncol_i = 4)
 p85 <- make_temp_plot(85, ncol_i = 2)
 
-ggsave(here("result", "PCR_prediction_observed_combos_63C.png"),
-       p63, width = 11, height = 7, dpi = 600, bg = "white")
+ggsave(here("result", "PCR_prediction_observed_combos_63C.tiff"),
+       p63, width = 11, height = 7, dpi = 600, compression = "lzw", bg = "white")
 
-ggsave(here("result", "PCR_prediction_observed_combos_72C.png"),
-       p72, width = 13, height = 8, dpi = 600, bg = "white")
+ggsave(here("result", "PCR_prediction_observed_combos_72C.tiff"),
+       p72, width = 13, height = 8, dpi = 600, compression = "lzw", bg = "white")
 
-ggsave(here("result", "PCR_prediction_observed_combos_85C.png"),
-       p85, width = 10, height = 6, dpi = 600, bg = "white")
+ggsave(here("result", "PCR_prediction_observed_combos_85C.tiff"),
+       p85, width = 10, height = 6, dpi = 600, compression = "lzw", bg = "white")
 
 p63
 p72
@@ -3641,11 +4392,12 @@ p_compare <- ggplot(
 p_compare
 
 ggsave(
-  here("result", "hav_shellfish_endpoint_overlay_0_10min.png"),
+  here("result", "hav_shellfish_endpoint_overlay_0_10min.tiff"),
   p_compare,
   width = 10,
   height = 8,
   dpi = 600,
+  compression = "lzw",
   bg = "white"
 )
 ```
@@ -3820,11 +4572,12 @@ p_diff_points_ci <- ggplot(
 p_diff_points_ci
 
 ggsave(
-  here("result", "endpoint_difference_vs_infectivity_compact.png"),
+  here("result", "endpoint_difference_vs_infectivity_compact.tiff"),
   plot = p_diff_points_ci,
   width = 9,
   height = 4.5,
   dpi = 600,
+  compression = "lzw",
   bg = "white"
 )
 ```
@@ -4021,11 +4774,12 @@ p_box_bw <- ggplot(
 
 p_box_bw
 ggsave(
-  here("result", "endpoint_difference_vs_infectivity_boxplot.png"),
+  here("result", "endpoint_difference_vs_infectivity_boxplot.tiff"),
   plot = p_box_bw,
   width = 6,
   height = 4,
   dpi = 600,
+  compression = "lzw",
   bg = "white"
 )
 ```

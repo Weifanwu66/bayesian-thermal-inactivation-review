@@ -71,3 +71,7 @@ The first three cleaned objects share these analysis columns:
 ## License
 
 The research materials in this repository are available under the [Creative Commons Attribution 4.0 International License](LICENSE). Reuse is permitted with appropriate attribution. Any manuscript published by *Food Research International* remains subject to the publishing agreement and license selected for that article.
+
+## Citation
+
+Wu, W., Havelaar, A. H., & Montazeri, N. (2026). Thermal inactivation kinetics of foodborne viruses across food matrices: A Bayesian meta-analysis and predictive framework. Food Research International, 120750. https://doi.org/10.1016/j.foodres.2026.120750
